@@ -9,3 +9,5 @@ edition = "2018"
 [dependencies]
 mio = {version = "*",features = ["os-poll", "tcp"]}
 futures-task = "*"
+futures-io = "*"
+futures = "*"

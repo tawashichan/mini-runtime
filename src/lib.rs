@@ -5,8 +5,8 @@ use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::Arc;
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+mod tcp_stream;
 
 type TaskId = usize;
 
@@ -31,7 +31,7 @@ impl Task {
 
         match future.poll(&mut context) {
             Poll::Ready(_) => Poll::Ready(()),
-            _ => unimplemented!(),
+            Poll::Pending => Poll::Pending,
         }
     }
 }
@@ -106,8 +106,8 @@ impl CustomWaker {
 }
 
 struct EventLoop {
-    poller: mio::Poll,
-    events: mio::Events,
+    poller: RefCell<mio::Poll>,
+    events: RefCell<mio::Events>,
     entry: RefCell<BTreeMap<mio::Token, Entry>>,
     wait_queue: RefCell<BTreeMap<TaskId, Task>>,
     run_queue: RefCell<VecDeque<Wakeup>>,
@@ -121,6 +121,10 @@ struct Entry {
     writer: Waker,
 }
 
+pub fn run<F: Future<Output = ()> + Send + 'static>(f: F) {
+    REACTOR.with(|reactor| reactor.run(f));
+}
+
 impl EventLoop {
     fn new() -> Self {
         let poll = mio::Poll::new().unwrap();
@@ -128,15 +132,16 @@ impl EventLoop {
 
         EventLoop {
             entry: RefCell::new(BTreeMap::new()),
-            poller: poll,
+            poller: RefCell::new(poll),
             wait_queue: RefCell::new(BTreeMap::new()),
-            events: events,
+            events: RefCell::new(events),
             run_queue: RefCell::new(VecDeque::new()),
             task_counter: Cell::new(0),
         }
     }
 
-    fn register<S: mio::event::Source>(&mut self, source: &mut S, token: mio::Token, waker: Waker) {
+    fn register_entry(&self, token: mio::Token, waker: Waker) {
+        println!("{:?} {:?}", token, waker);
         self.entry.borrow_mut().insert(
             token,
             Entry {
@@ -145,9 +150,19 @@ impl EventLoop {
                 writer: waker,
             },
         );
-        self.poller
-            .registry()
-            .register(source, token, mio::Interest::AIO);
+    }
+
+    fn register_source<S: mio::event::Source + std::fmt::Debug>(
+        &self,
+        source: &mut S,
+        token: mio::Token,
+    ) {
+        println!("{:?} {:?}", source, token);
+        self.poller.borrow_mut().registry().register(
+            source,
+            token,
+            mio::Interest::READABLE | mio::Interest::WRITABLE | mio::Interest::AIO,
+        );
     }
 
     fn wake(&self, wakeup: Wakeup) {
@@ -156,24 +171,25 @@ impl EventLoop {
 
     fn spawn<F: Future<Output = ()> + Send + 'static>(&self, f: F) {
         let task_id = self.task_counter.get();
+        self.task_counter.set(task_id + 1);
         let mut task = Task(task_id, RawTask(Box::new(f)));
         let waker = CustomWaker::waker(task_id);
 
         if let Poll::Ready(_) = task.poll(waker) {
             return;
         }
-        self.wait_queue.borrow_mut().insert(task_id,task);
+        self.wait_queue.borrow_mut().insert(task_id, task);
     }
 
-    pub fn run<F: Future<Output = ()> + Send + 'static>(
-        &mut self,
-        f: F,
-    ) -> Result<(), Box<dyn Error>> {
+    fn run<F: Future<Output = ()> + Send + 'static>(&self, f: F) -> Result<(), Box<dyn Error>> {
         self.spawn(f);
         loop {
-            self.poller.poll(&mut self.events, None)?;
+            println!("start polling");
 
-            for event in self.events.iter() {
+            let mut events = self.events.borrow_mut();
+            self.poller.borrow_mut().poll(&mut events, None)?;
+
+            for event in events.iter() {
                 let token = event.token();
 
                 if let Some(entry) = self.entry.borrow_mut().get(&token) {
@@ -190,9 +206,10 @@ impl EventLoop {
                 let wakeup = self.run_queue.borrow_mut().pop_front();
                 match wakeup {
                     Some(wakeup) => {
-                        if let Some(mut task) = self.wait_queue.borrow_mut().remove(&wakeup.task_id) {
+                        let mut wait_queue = self.wait_queue.borrow_mut();
+                        if let Some(mut task) = wait_queue.remove(&wakeup.task_id) {
                             if let Poll::Pending = task.poll(wakeup.waker) {
-                                self.wait_queue.borrow_mut().insert(wakeup.task_id, task);
+                                wait_queue.insert(wakeup.task_id, task);
                             }
                         }
                     }
@@ -204,12 +221,29 @@ impl EventLoop {
 }
 
 #[test]
-fn run_test() {
-    let mut reactor = EventLoop::new();
+fn network() {
+    use futures::io::{AsyncReadExt, AsyncWriteExt};
+    async fn http_get(addr: &str) -> Result<String, std::io::Error> {
+        let addr = addr.parse().unwrap();
+        let mut conn = tcp_stream::AsyncTcpStream::connect(addr)?;
 
-    let future = async {
-        println!("aaaa");
-    };
+        let _ = conn.write_all(b"GET / HTTP/1.0\r\n\r\n").await?;
 
-    reactor.run(future);
+        let mut page = Vec::new();
+        loop {
+            let mut buf = vec![0; 128];
+            let len = conn.read(&mut buf).await?;
+            if len == 0 {
+                break;
+            }
+            page.extend_from_slice(&buf[..len]);
+        }
+        let page = String::from_utf8_lossy(&page).into();
+        Ok(page)
+    }
+    async fn local() {
+        let res = http_get("127.0.0.1:8888").await.unwrap();
+        println!("{}", res);
+    }
+    run(local())
 }
