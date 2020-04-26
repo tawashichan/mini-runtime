@@ -22,6 +22,10 @@ impl AsyncTcpStream {
         REACTOR.with(|reactor| reactor.register_source(&mut inner, mio::Token(fd as usize)));
         Ok(AsyncTcpStream(inner))
     }
+
+    pub fn from_std(conn: mio::net::TcpStream) -> AsyncTcpStream {
+        AsyncTcpStream(conn)
+    }
 }
 
 impl Drop for AsyncTcpStream {

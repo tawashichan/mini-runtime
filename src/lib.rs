@@ -6,6 +6,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+mod tcp_listener;
 mod tcp_stream;
 
 type TaskId = usize;
@@ -125,6 +126,10 @@ pub fn run<F: Future<Output = ()> + Send + 'static>(f: F) {
     REACTOR.with(|reactor| reactor.run(f));
 }
 
+pub fn spawn<F: Future<Output = ()> + Send + 'static>(f: F) {
+    REACTOR.with(|reactor| reactor.spawn(f));
+}
+
 impl EventLoop {
     fn new() -> Self {
         let poll = mio::Poll::new().unwrap();
@@ -194,9 +199,11 @@ impl EventLoop {
 
                 if let Some(entry) = self.entry.borrow_mut().get(&token) {
                     if event.is_readable() {
+                        println!("read event");
                         entry.reader.wake_by_ref()
                     }
                     if event.is_writable() {
+                        println!("write event");
                         entry.writer.wake_by_ref()
                     }
                 }
@@ -221,7 +228,33 @@ impl EventLoop {
 }
 
 #[test]
-fn network() {
+fn server() {
+    use futures::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn listen(addr: &str) {
+        use futures::stream::StreamExt;
+
+        let addr = addr.parse().unwrap();
+        let listener = tcp_listener::AsyncTcpListener::bind(addr).unwrap();
+        let mut incoming = listener.incoming();
+
+        while let Some(stream) = incoming.next().await {
+            spawn(process(stream));
+        }
+    }
+
+    async fn process(mut stream: tcp_stream::AsyncTcpStream) {
+        let mut buf = vec![0; 10];
+        let _ = stream.read_exact(&mut buf).await;
+        println!("{}", String::from_utf8_lossy(&buf));
+        let _ = stream.write_all(b"GET / HTTP/1.0\r\n\r\n").await;
+    }
+
+    run(listen("127.0.0.1:8888"))
+}
+
+/*#[test]
+fn client() {
     use futures::io::{AsyncReadExt, AsyncWriteExt};
     async fn http_get(addr: &str) -> Result<String, std::io::Error> {
         let addr = addr.parse().unwrap();
@@ -247,3 +280,4 @@ fn network() {
     }
     run(local())
 }
+*/

@@ -11,3 +11,4 @@ mio = {version = "*",features = ["os-poll", "tcp"]}
 futures-task = "*"
 futures-io = "*"
 futures = "*"
+futures-core = "*"
