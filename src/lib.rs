@@ -6,8 +6,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-mod tcp_listener;
-mod tcp_stream;
+
+pub mod tcp_listener;
+pub mod tcp_stream;
 
 type TaskId = usize;
 
