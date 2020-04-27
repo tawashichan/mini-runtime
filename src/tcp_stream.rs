@@ -43,6 +43,7 @@ impl AsyncTcpStream {
         //let inner = mio::net::TcpStream::connect(addr)?;
 
         let conn = std::net::TcpStream::connect(addr)?;
+        conn.set_nonblocking(true)?;
         let inner = mio::net::TcpStream::from_std(conn);
         let fd = inner.as_raw_fd();
         let watcher = StreamWatcher::new(mio::Token(fd as usize), inner);

@@ -303,7 +303,7 @@ fn server() {
         let mut buf = vec![0; 10];
         let _ = stream.read_exact(&mut buf).await;
         println!("{}", String::from_utf8_lossy(&buf));
-        //local().await;
+        local().await;
         let _ = stream
             .write_all(b"GET / HTTP/1.0\nContent-Length: 0\r\n\r\n")
             .await;
