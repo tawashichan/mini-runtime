@@ -127,7 +127,7 @@ checksum = "3728d817d99e5ac407411fa471ff9800a778d88a24685968b36824eaf4bee400"
 [[package]]
 name = "mini-runtime"
 version = "0.1.0"
-source = "git+https://github.com/tawashichan/mini-runtime.git#814eb0912e2f70ca683b14bcfdce91b10f66944a"
+source = "git+https://github.com/tawashichan/mini-runtime.git#79bd035cb81513c20a68f872dbfc30b9ecd4672e"
 dependencies = [
  "futures",
  "futures-core",

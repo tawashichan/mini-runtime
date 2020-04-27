@@ -19,7 +19,9 @@ fn main() {
         let mut buf = vec![0; 10];
         let _ = stream.read_exact(&mut buf).await;
         println!("{}", String::from_utf8_lossy(&buf));
-        //let _ = stream.write_all(b"GET / HTTP/1.0\r\n\r\n").await;
+        let _ = stream
+            .write_all(b"HTTP/1.0 200 OK\nContent-Length: 8\r\n\r\nhogehoge")
+            .await;
     }
 
     run(listen("127.0.0.1:8888"))

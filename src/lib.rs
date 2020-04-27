@@ -115,7 +115,6 @@ struct EventLoop {
     wait_queue: RefCell<BTreeMap<TaskId, Task>>,
     run_queue: RefCell<VecDeque<Wakeup>>,
     task_counter: Cell<usize>,
-    token_counter: Cell<usize>,
 }
 
 #[derive(Debug)]
@@ -145,7 +144,6 @@ impl EventLoop {
             events: RefCell::new(events),
             run_queue: RefCell::new(VecDeque::new()),
             task_counter: Cell::new(0),
-            token_counter: Cell::new(0),
         }
     }
 
@@ -171,11 +169,7 @@ impl EventLoop {
         token: mio::Token,
         interest: mio::Interest,
     ) {
-        /*let token_id = self.token_counter.get();
-        self.token_counter.set(token_id + 1);
-        let token = mio::Token(token_id); */
         println!("register_source: {:?} {:?}", source, token);
-
         self.poller
             .borrow_mut()
             .registry()
@@ -309,7 +303,9 @@ fn server() {
         let _ = stream.read_exact(&mut buf).await;
         println!("{}", String::from_utf8_lossy(&buf));
         //local().await;
-        let _ = stream.write_all(b"GET / HTTP/1.0\nContent-Length: 0\r\n\r\n").await;
+        let _ = stream
+            .write_all(b"GET / HTTP/1.0\nContent-Length: 0\r\n\r\n")
+            .await;
         println!("echo")
     }
 
