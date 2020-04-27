@@ -35,7 +35,9 @@ impl ListenerWatcher {
 
 impl AsyncTcpListener {
     pub fn bind(addr: std::net::SocketAddr) -> Result<AsyncTcpListener, io::Error> {
-        let inner = mio::net::TcpListener::bind(addr)?;
+        let listener = std::net::TcpListener::bind(addr)?;
+        listener.set_nonblocking(true)?;
+        let inner = mio::net::TcpListener::from_std(listener);
         let fd = inner.as_raw_fd();
         let watcher = ListenerWatcher::new(mio::Token(fd as usize), inner);
         Ok(AsyncTcpListener(watcher))
