@@ -97,7 +97,7 @@ impl AsyncWrite for AsyncTcpStream {
                 REACTOR.with(|reactor| reactor.register_entry(self.0.mio_token, waker.clone()));
                 Poll::Pending
             }
-            Err(err) => panic!("error {:?}", err),
+            Err(err) => Poll::Ready(Err(err)),
         }
     }
 

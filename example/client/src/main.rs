@@ -21,8 +21,14 @@ async fn http_get(addr: &str) -> Result<String, std::io::Error> {
     Ok(page)
 }
 async fn local() {
-    let res = http_get("127.0.0.1:8888").await.unwrap();
-    println!("response: {}", res);
+    match http_get("127.0.0.1:8888").await {
+        Ok(res) => {
+            println!("response: {}", res);
+        },
+        Err(err) => {
+            println!("err: {}", err);
+        }
+    };
 }
 
 fn main() {
