@@ -40,7 +40,10 @@ impl StreamWatcher {
 
 impl AsyncTcpStream {
     pub fn connect(addr: std::net::SocketAddr) -> Result<AsyncTcpStream, io::Error> {
-        let inner = mio::net::TcpStream::connect(addr)?;
+        //let inner = mio::net::TcpStream::connect(addr)?;
+
+        let conn = std::net::TcpStream::connect(addr)?;
+        let inner = mio::net::TcpStream::from_std(conn);
         let fd = inner.as_raw_fd();
         let watcher = StreamWatcher::new(mio::Token(fd as usize), inner);
         Ok(AsyncTcpStream(watcher))
