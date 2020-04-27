@@ -252,6 +252,7 @@ impl EventLoop {
                     }
                     None => break,
                 }
+                println!("handled all remaining tasks\n");
             }
         }
     }

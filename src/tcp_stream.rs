@@ -22,16 +22,20 @@ struct StreamWatcher {
 }
 
 impl StreamWatcher {
-
-    fn new(token: mio::Token,stream: mio::net::TcpStream) -> StreamWatcher {
+    fn new(token: mio::Token, stream: mio::net::TcpStream) -> StreamWatcher {
         let mut stream = stream;
-        REACTOR.with(|reactor| reactor.register_source(&mut stream, token,mio::Interest::READABLE | mio::Interest::WRITABLE));
-        StreamWatcher{
+        REACTOR.with(|reactor| {
+            reactor.register_source(
+                &mut stream,
+                token,
+                mio::Interest::READABLE | mio::Interest::WRITABLE,
+            )
+        });
+        StreamWatcher {
             mio_token: token,
             stream: stream,
         }
     }
-
 }
 
 impl AsyncTcpStream {
@@ -71,12 +75,10 @@ impl AsyncRead for AsyncTcpStream {
         match (self.0).stream.read(buf) {
             Ok(len) => Poll::Ready(Ok(len)),
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-                REACTOR
-                    .with(|reactor| reactor.register_entry(self.0.mio_token, waker.clone()));
-
+                REACTOR.with(|reactor| reactor.register_entry(self.0.mio_token, waker.clone()));
                 Poll::Pending
             }
-            Err(err) => panic!("error {:?}", err),
+            Err(err) => Poll::Ready(Err(err)),
         }
     }
 }
@@ -92,8 +94,7 @@ impl AsyncWrite for AsyncTcpStream {
         match (self.0).stream.write(buf) {
             Ok(len) => Poll::Ready(Ok(len)),
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-                REACTOR
-                    .with(|reactor| reactor.register_entry(self.0.mio_token, waker.clone()));
+                REACTOR.with(|reactor| reactor.register_entry(self.0.mio_token, waker.clone()));
                 Poll::Pending
             }
             Err(err) => panic!("error {:?}", err),

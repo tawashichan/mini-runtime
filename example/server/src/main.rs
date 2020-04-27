@@ -4,25 +4,52 @@ use mini_runtime::tcp_listener;
 use mini_runtime::tcp_stream;
 use mini_runtime::{run, spawn};
 
-fn main() {
-    async fn listen(addr: &str) {
-        let addr = addr.parse().unwrap();
-        let listener = tcp_listener::AsyncTcpListener::bind(addr).unwrap();
-        let mut incoming = listener.incoming();
+async fn http_get(addr: &str) -> Result<String, std::io::Error> {
+    let addr = addr.parse().unwrap();
+    let mut conn = tcp_stream::AsyncTcpStream::connect(addr)?;
+    println!("get request");
+    println!("get request");
+    println!("get request");
+    println!("get request");
+    let _ = conn.write_all(b"GET / HTTP/1.0\r\n\r\n").await?;
 
-        while let Some(stream) = incoming.next().await {
-            spawn(process(stream));
+    let mut page = Vec::new();
+    loop {
+        let mut buf = vec![0; 128];
+        let len = conn.read(&mut buf).await?;
+        if len == 0 {
+            break;
         }
+        page.extend_from_slice(&buf[..len]);
     }
+    let page = String::from_utf8_lossy(&page).into();
+    Ok(page)
+}
+async fn local() {
+    let res = http_get("127.0.0.1:8080").await.unwrap();
+    println!("{}", res);
+}
 
-    async fn process(mut stream: tcp_stream::AsyncTcpStream) {
-        let mut buf = vec![0; 10];
-        let _ = stream.read_exact(&mut buf).await;
-        println!("{}", String::from_utf8_lossy(&buf));
-        let _ = stream
-            .write_all(b"HTTP/1.0 200 OK\nContent-Length: 8\r\n\r\nhogehoge")
-            .await;
+async fn listen(addr: &str) {
+    let addr = addr.parse().unwrap();
+    let listener = tcp_listener::AsyncTcpListener::bind(addr).unwrap();
+    let mut incoming = listener.incoming();
+
+    while let Some(stream) = incoming.next().await {
+        spawn(process(stream));
     }
+}
 
+async fn process(mut stream: tcp_stream::AsyncTcpStream) {
+    let mut buf = vec![0; 10];
+    let _ = stream.read_exact(&mut buf).await;
+    println!("{}", String::from_utf8_lossy(&buf));
+    //local().await;
+    let _ = stream
+        .write_all(b"HTTP/1.0 200 OK\nContent-Length: 8\r\n\r\nhogehoge")
+        .await;
+}
+
+fn main() {
     run(listen("127.0.0.1:8888"))
 }
