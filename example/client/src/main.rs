@@ -54,6 +54,5 @@ async fn local() {
 }
 
 fn main() {
-    get_sync()
-    //run(local())
+    run(local())
 }
