@@ -13,28 +13,50 @@ use crate::REACTOR;
 
 // AsyncTcpStream just wraps std tcp stream
 #[derive(Debug)]
-pub struct AsyncTcpStream(mio::net::TcpStream);
+pub struct AsyncTcpStream(StreamWatcher);
+
+#[derive(Debug)]
+struct StreamWatcher {
+    mio_token: mio::Token,
+    stream: mio::net::TcpStream,
+}
+
+impl StreamWatcher {
+
+    fn new(token: mio::Token,stream: mio::net::TcpStream) -> StreamWatcher {
+        let mut stream = stream;
+        REACTOR.with(|reactor| reactor.register_source(&mut stream, token,mio::Interest::READABLE | mio::Interest::WRITABLE));
+        StreamWatcher{
+            mio_token: token,
+            stream: stream,
+        }
+    }
+
+}
 
 impl AsyncTcpStream {
     pub fn connect(addr: std::net::SocketAddr) -> Result<AsyncTcpStream, io::Error> {
-        let mut inner = mio::net::TcpStream::connect(addr)?;
+        let inner = mio::net::TcpStream::connect(addr)?;
         let fd = inner.as_raw_fd();
-        REACTOR.with(|reactor| reactor.register_source(&mut inner, mio::Token(fd as usize)));
-        Ok(AsyncTcpStream(inner))
+        let watcher = StreamWatcher::new(mio::Token(fd as usize), inner);
+        Ok(AsyncTcpStream(watcher))
     }
 
-    pub fn from_std(conn: mio::net::TcpStream) -> AsyncTcpStream {
-        AsyncTcpStream(conn)
+    pub fn from_mio(conn: mio::net::TcpStream) -> AsyncTcpStream {
+        let fd = conn.as_raw_fd();
+        let watcher = StreamWatcher::new(mio::Token(fd as usize), conn);
+        AsyncTcpStream(watcher)
     }
 }
 
 impl Drop for AsyncTcpStream {
     fn drop(&mut self) {
-        /*REACTOR.with(|reactor| {
-            let fd = self.0.as_raw_fd();
-            reactor.remove_read_interest(fd);
-            reactor.remove_write_interest(fd);
-        });*/
+        REACTOR.with(|reactor| {
+            /*let fd = self.0.as_raw_fd();
+            let token = mio::Token(fd as usize);
+            reactor.deregister_entry(&token);
+            reactor.deregister_source(&mut self.0);*/
+        });
     }
 }
 
@@ -44,14 +66,13 @@ impl AsyncRead for AsyncTcpStream {
         ctx: &mut Context,
         buf: &mut [u8],
     ) -> Poll<Result<usize, Error>> {
-        let fd = self.0.as_raw_fd();
         let waker = ctx.waker();
 
-        match self.0.read(buf) {
+        match (self.0).stream.read(buf) {
             Ok(len) => Poll::Ready(Ok(len)),
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
                 REACTOR
-                    .with(|reactor| reactor.register_entry(mio::Token(fd as usize), waker.clone()));
+                    .with(|reactor| reactor.register_entry(self.0.mio_token, waker.clone()));
 
                 Poll::Pending
             }
@@ -66,14 +87,13 @@ impl AsyncWrite for AsyncTcpStream {
         ctx: &mut Context,
         buf: &[u8],
     ) -> Poll<Result<usize, Error>> {
-        let fd = self.0.as_raw_fd();
         let waker = ctx.waker();
 
-        match self.0.write(buf) {
+        match (self.0).stream.write(buf) {
             Ok(len) => Poll::Ready(Ok(len)),
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
                 REACTOR
-                    .with(|reactor| reactor.register_entry(mio::Token(fd as usize), waker.clone()));
+                    .with(|reactor| reactor.register_entry(self.0.mio_token, waker.clone()));
                 Poll::Pending
             }
             Err(err) => panic!("error {:?}", err),

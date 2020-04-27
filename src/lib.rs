@@ -5,6 +5,7 @@ use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
 pub mod tcp_listener;
@@ -114,6 +115,7 @@ struct EventLoop {
     wait_queue: RefCell<BTreeMap<TaskId, Task>>,
     run_queue: RefCell<VecDeque<Wakeup>>,
     task_counter: Cell<usize>,
+    token_counter: Cell<usize>,
 }
 
 #[derive(Debug)]
@@ -143,11 +145,12 @@ impl EventLoop {
             events: RefCell::new(events),
             run_queue: RefCell::new(VecDeque::new()),
             task_counter: Cell::new(0),
+            token_counter: Cell::new(0),
         }
     }
 
     fn register_entry(&self, token: mio::Token, waker: Waker) {
-        println!("{:?} {:?}", token, waker);
+        println!("register_entry: {:?} {:?}", token, waker);
         self.entry.borrow_mut().insert(
             token,
             Entry {
@@ -158,20 +161,33 @@ impl EventLoop {
         );
     }
 
+    fn deregister_entry(&self, token: &mio::Token) {
+        self.entry.borrow_mut().remove(&token);
+    }
+
     fn register_source<S: mio::event::Source + std::fmt::Debug>(
         &self,
         source: &mut S,
         token: mio::Token,
+        interest: mio::Interest,
     ) {
-        println!("{:?} {:?}", source, token);
-        self.poller.borrow_mut().registry().register(
-            source,
-            token,
-            mio::Interest::READABLE | mio::Interest::WRITABLE | mio::Interest::AIO,
-        );
+        /*let token_id = self.token_counter.get();
+        self.token_counter.set(token_id + 1);
+        let token = mio::Token(token_id); */
+        println!("register_source: {:?} {:?}", source, token);
+
+        self.poller
+            .borrow_mut()
+            .registry()
+            .register(source, token, interest);
+    }
+
+    fn deregister_source<S: mio::event::Source + std::fmt::Debug>(&self, source: &mut S) {
+        self.poller.borrow_mut().registry().deregister(source);
     }
 
     fn wake(&self, wakeup: Wakeup) {
+        println!("add task to run queue: {:?}", wakeup.task_id);
         self.run_queue.borrow_mut().push_back(wakeup)
     }
 
@@ -182,9 +198,12 @@ impl EventLoop {
         let waker = CustomWaker::waker(task_id);
 
         if let Poll::Ready(_) = task.poll(waker) {
+            println!("this task is ready and return: task_id: {:?}", task_id);
             return;
         }
+        println!("add task to wait queue: task_id: {:?}", task_id);
         self.wait_queue.borrow_mut().insert(task_id, task);
+        println!("finish adding task to wait queue: task_id: {:?}", task_id);
     }
 
     fn run<F: Future<Output = ()> + Send + 'static>(&self, f: F) -> Result<(), Box<dyn Error>> {
@@ -214,12 +233,28 @@ impl EventLoop {
                 let wakeup = self.run_queue.borrow_mut().pop_front();
                 match wakeup {
                     Some(wakeup) => {
-                        let mut wait_queue = self.wait_queue.borrow_mut();
-                        if let Some(mut task) = wait_queue.remove(&wakeup.task_id) {
-                            if let Poll::Pending = task.poll(wakeup.waker) {
-                                wait_queue.insert(wakeup.task_id, task);
+                        println!("search wait queue");
+                        let task = {
+                            let mut wait_queue = self.wait_queue.borrow_mut();
+                            wait_queue.remove(&wakeup.task_id)
+                        };
+                        println!("got wait queue lock");
+                        if let Some(mut task) = task {
+                            println!("got task");
+                            match task.poll(wakeup.waker) {
+                                Poll::Pending => {
+                                    println!("add remaining task");
+                                    {
+                                        let mut wait_queue = self.wait_queue.borrow_mut();
+                                        wait_queue.insert(wakeup.task_id, task);
+                                    };
+                                }
+                                Poll::Ready(_) => {
+                                    println!("task {:?} finished", wakeup.task_id);
+                                }
                             }
                         }
+                        println!("handling task ended\n");
                     }
                     None => break,
                 }
@@ -232,6 +267,30 @@ impl EventLoop {
 fn server() {
     use futures::io::{AsyncReadExt, AsyncWriteExt};
 
+    async fn http_get(addr: &str) -> Result<String, std::io::Error> {
+        let addr = addr.parse().unwrap();
+        let mut conn = tcp_stream::AsyncTcpStream::connect(addr)?;
+        println!("start request");
+        println!("start request");
+        let _ = conn.write_all(b"GET / HTTP/1.0\r\n\r\n").await?;
+
+        let mut page = Vec::new();
+        loop {
+            let mut buf = vec![0; 128];
+            let len = conn.read(&mut buf).await?;
+            if len == 0 {
+                break;
+            }
+            page.extend_from_slice(&buf[..len]);
+        }
+        let page = String::from_utf8_lossy(&page).into();
+        Ok(page)
+    }
+    async fn local() {
+        let res = http_get("127.0.0.1:8080").await.unwrap();
+        println!("{}", res);
+    }
+
     async fn listen(addr: &str) {
         use futures::stream::StreamExt;
 
@@ -240,6 +299,7 @@ fn server() {
         let mut incoming = listener.incoming();
 
         while let Some(stream) = incoming.next().await {
+            println!("new request");
             spawn(process(stream));
         }
     }
@@ -248,7 +308,9 @@ fn server() {
         let mut buf = vec![0; 10];
         let _ = stream.read_exact(&mut buf).await;
         println!("{}", String::from_utf8_lossy(&buf));
-        let _ = stream.write_all(b"GET / HTTP/1.0\r\n\r\n").await;
+        //local().await;
+        let _ = stream.write_all(b"GET / HTTP/1.0\nContent-Length: 0\r\n\r\n").await;
+        println!("echo")
     }
 
     run(listen("127.0.0.1:8888"))
