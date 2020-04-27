@@ -28,7 +28,7 @@ async fn http_get(addr: &str) -> Result<String, std::io::Error> {
 }
 async fn local() {
     match http_get("127.0.0.1:8080").await {
-        Ok(resp) => println!("{}", resp),
+        Ok(resp) => println!("response: {}", resp),
         Err(_) => {}
     }
 }
