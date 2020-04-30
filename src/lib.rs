@@ -201,13 +201,17 @@ impl EventLoop {
     }
 
     fn run<F: Future<Output = ()> + Send + 'static>(&self, f: F) -> Result<(), Box<dyn Error>> {
+        //spawnをすると実行待ちのタスクとしてwait_queueに積まれる
         self.spawn(f);
         loop {
             println!("start polling");
 
+            // mioを使って,ストリームに読み込んだり書き込んだりできるか監視する
             let mut events = self.events.borrow_mut();
             self.poller.borrow_mut().poll(&mut events, None)?;
 
+            // 読み込んだり書き込んだりできるよってイベントが返ってきたらwake_by_refを使ってrun_queueにtaskIdを積む
+            // wake_by_refは最終的にEventLoop::wakeを呼ぶ
             for event in events.iter() {
                 let token = event.token();
 
@@ -224,6 +228,7 @@ impl EventLoop {
             }
 
             loop {
+                // run_queueに積まれたタスクを探して,タスクがあったらwait_queueから取り出して,タスクをpoll（タスクはFuture traitをimplしているのでpollできる）
                 let wakeup = self.run_queue.borrow_mut().pop_front();
                 match wakeup {
                     Some(wakeup) => {
@@ -239,11 +244,14 @@ impl EventLoop {
                                 Poll::Pending => {
                                     println!("add remaining task");
                                     {
+                                        // 一回pollしてもまだタスクが完了していなかったらもう一回wait_queueに積む
+                                        // awaitを複数回使っていたり,mioから偽陽性の通知がくるとここに分岐する
                                         let mut wait_queue = self.wait_queue.borrow_mut();
                                         wait_queue.insert(wakeup.task_id, task);
                                     };
                                 }
                                 Poll::Ready(_) => {
+                                    // 終わってたら何もしない
                                     println!("task {:?} finished", wakeup.task_id);
                                 }
                             }

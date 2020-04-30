@@ -58,10 +58,8 @@ impl AsyncTcpStream {
 impl Drop for AsyncTcpStream {
     fn drop(&mut self) {
         REACTOR.with(|reactor| {
-            /*let fd = self.0.as_raw_fd();
-            let token = mio::Token(fd as usize);
-            reactor.deregister_entry(&token);
-            reactor.deregister_source(&mut self.0);*/
+            reactor.deregister_entry(&self.0.mio_token);
+            reactor.deregister_source(&mut self.0.stream);
         });
     }
 }
