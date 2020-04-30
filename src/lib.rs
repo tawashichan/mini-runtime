@@ -109,11 +109,17 @@ impl CustomWaker {
 }
 
 struct EventLoop {
+    // mioのio監視してくれるやつ
     poller: RefCell<mio::Poll>,
+    // io監視の結果やってきたイベントたちを格納しておく場所
     events: RefCell<mio::Events>,
+    // mioのイベントと,taskの対応関係を保持する場所
     entry: RefCell<BTreeMap<mio::Token, Entry>>,
+    // 実行待ちのタスク(future)を保管する場所
     wait_queue: RefCell<BTreeMap<TaskId, Task>>,
+    // 実行かのうになったタスクidを保管する場所 
     run_queue: RefCell<VecDeque<Wakeup>>,
+    // 一意なタスクidを生成するためのカウンター
     task_counter: Cell<usize>,
 }
 
