@@ -123,6 +123,7 @@ struct EventLoop {
     task_counter: Cell<usize>,
 }
 
+// Wakerはwakeするとwakerの持つtaskIdをrun_queueに積む役割をしているので,mioのeventとタスクを紐づける役割をしている
 #[derive(Debug)]
 struct Entry {
     token: mio::Token,
@@ -134,6 +135,7 @@ pub fn run<F: Future<Output = ()> + Send + 'static>(f: F) {
     REACTOR.with(|reactor| reactor.run(f));
 }
 
+// futureをtaskとしてrun_queueに積むための機能
 pub fn spawn<F: Future<Output = ()> + Send + 'static>(f: F) {
     REACTOR.with(|reactor| reactor.spawn(f));
 }
@@ -169,6 +171,8 @@ impl EventLoop {
         self.entry.borrow_mut().remove(&token);
     }
 
+    // mioにストリームの監視を依頼するための機能。
+    // ここでpoller.registry().registerすると,sourceが書き込んだり読み込んだりできるようになったらeventを返してもらえるようになる
     fn register_source<S: mio::event::Source + std::fmt::Debug>(
         &self,
         source: &mut S,
@@ -186,6 +190,7 @@ impl EventLoop {
         self.poller.borrow_mut().registry().deregister(source);
     }
 
+    // Waker::wakeを実行するとrun_queueに積まれる
     fn wake(&self, wakeup: Wakeup) {
         println!("add task to run queue: {:?}", wakeup.task_id);
         self.run_queue.borrow_mut().push_back(wakeup)
